@@ -24,7 +24,8 @@ ollama_client = OllamaClient()
 evaluator = RAGEvaluator(crag_workflow=crag_pipeline, retriever=retriever)
 
 class QueryRequest(BaseModel):
-    question: str
+    question: Optional[str] = None
+    message: Optional[str] = None
     llm_model: Optional[str] = None
     temperature: Optional[float] = None
     enable_web_search: Optional[bool] = None
@@ -70,15 +71,18 @@ import json
 @router.post("/chat")
 def process_query(request: QueryRequest) -> Dict[str, Any]:
     """Executes the Corrective RAG (CRAG) pipeline for a user question."""
-    if not request.question.strip():
-        raise HTTPException(status_code=400, detail="Question cannot be empty.")
+    q_text = (request.question or request.message or "").strip()
+    if not q_text:
+        raise HTTPException(status_code=400, detail="Question/message cannot be empty.")
 
     if request.llm_model:
         ollama_client.model_name = request.llm_model
 
-    result = crag_pipeline.run(question=request.question)
+    result = crag_pipeline.run(question=q_text)
+    ans = result.get("generation", "")
     return {
-        "question": request.question,
+        "question": q_text,
+        "message": q_text,
         "original_question": result.get("original_question"),
         "rewritten_query": result.get("rewritten_query"),
         "rewrite_count": result.get("rewrite_count", 0),
@@ -86,7 +90,8 @@ def process_query(request: QueryRequest) -> Dict[str, Any]:
         "confidence_level": result.get("confidence_level", "LOW"),
         "retrieval_confidence": result.get("retrieval_confidence", 0.0),
         "fast_path_used": result.get("fast_path_used", False),
-        "answer": result.get("generation"),
+        "answer": ans,
+        "response": ans,
         "citations": result.get("citations", []),
         "verification": result.get("verification_result", {}),
         "graded_documents": [
@@ -106,10 +111,12 @@ def process_query(request: QueryRequest) -> Dict[str, Any]:
     }
 
 @router.post("/query/stream")
+@router.post("/chat/stream")
 def process_query_stream(request: QueryRequest):
     """Streams response tokens in real-time with step trace and citations."""
-    if not request.question.strip():
-        raise HTTPException(status_code=400, detail="Question cannot be empty.")
+    q_text = (request.question or request.message or "").strip()
+    if not q_text:
+        raise HTTPException(status_code=400, detail="Question/message cannot be empty.")
 
     if request.llm_model:
         ollama_client.model_name = request.llm_model
@@ -117,9 +124,9 @@ def process_query_stream(request: QueryRequest):
     def event_stream():
         nodes = crag_pipeline.nodes
         state = {
-            "question": request.question,
-            "original_question": request.question,
-            "cleaned_query": request.question,
+            "question": q_text,
+            "original_question": q_text,
+            "cleaned_query": q_text,
             "rewritten_query": None,
             "rewrite_count": 0,
             "raw_documents": [],
