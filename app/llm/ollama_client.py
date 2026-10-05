@@ -48,7 +48,7 @@ class OllamaClient:
             payload["format"] = "json"
 
         try:
-            resp = requests.post(url, json=payload, timeout=120)
+            resp = requests.post(url, json=payload, timeout=20)
             if resp.status_code == 200:
                 return resp.json().get("response", "").strip()
             else:
@@ -81,7 +81,7 @@ class OllamaClient:
             payload["system"] = system_prompt
 
         try:
-            with requests.post(url, json=payload, stream=True, timeout=120) as resp:
+            with requests.post(url, json=payload, stream=True, timeout=20) as resp:
                 if resp.status_code == 200:
                     for line in resp.iter_lines(decode_unicode=True):
                         if line:
