@@ -67,6 +67,7 @@ from fastapi.responses import StreamingResponse
 import json
 
 @router.post("/query")
+@router.post("/chat")
 def process_query(request: QueryRequest) -> Dict[str, Any]:
     """Executes the Corrective RAG (CRAG) pipeline for a user question."""
     if not request.question.strip():
