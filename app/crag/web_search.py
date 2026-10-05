@@ -10,16 +10,26 @@ class WebSearchFallback:
     def __init__(self, max_results: int = 4):
         self.max_results = max_results
 
+    SPAM_KEYWORDS = {
+        "baji", "casino", "slots", "slot game", "baccarat", "betting", "jackpot",
+        "1xbet", "poker", "roulette", "bonus", "gambling", "sexy baccarat"
+    }
+
     def search(self, query: str) -> List[Dict[str, Any]]:
-        """Searches DuckDuckGo and formats results as document chunks."""
+        """Searches DuckDuckGo / ddgs with worldwide quality filter and formats results as document chunks."""
         if not settings.ENABLE_WEB_SEARCH_FALLBACK:
             return []
 
         try:
-            from duckduckgo_search import DDGS
+            try:
+                from ddgs import DDGS
+            except ImportError:
+                from duckduckgo_search import DDGS
+
+            raw_results = []
             with DDGS() as ddgs:
-                academic_query = f"{query} research paper arXiv"
-                raw_results = list(ddgs.text(academic_query, max_results=self.max_results))
+                # Use worldwide region (wt-wt) and fetch extra candidates to filter spam
+                raw_results = list(ddgs.text(query, region="wt-wt", max_results=self.max_results * 2))
 
             web_docs: List[Dict[str, Any]] = []
             for i, res in enumerate(raw_results):
@@ -27,25 +37,33 @@ class WebSearchFallback:
                 body = res.get("body", "")
                 href = res.get("href", "")
 
-                if not body:
+                if not body or len(body.strip()) < 20:
+                    continue
+
+                # Filter out gambling / spam results
+                text_check = f"{title} {body} {href}".lower()
+                if any(spam in text_check for spam in self.SPAM_KEYWORDS):
                     continue
 
                 web_docs.append({
-                    "id": f"web_search_{i}",
-                    "text": f"Title: {title}\nSummary: {body}\nURL: {href}",
+                    "id": f"web_search_{len(web_docs)}",
+                    "text": f"{title}\n{body}",
                     "metadata": {
-                        "paper": f"Web: {title[:40]}...",
+                        "paper": title[:40],
                         "paper_title": title,
                         "page": 1,
-                        "section": "Web Knowledge Fallback",
+                        "section": "Web Search Knowledge",
                         "url": href,
-                        "chunk_id": i
+                        "chunk_id": len(web_docs)
                     },
                     "source_type": "web_search",
                     "score": 0.8
                 })
 
-            logger.info(f"Web search retrieved {len(web_docs)} web documents for query: {query}")
+                if len(web_docs) >= self.max_results:
+                    break
+
+            logger.info(f"Web search retrieved {len(web_docs)} high-quality web documents for query: {query}")
             return web_docs
 
         except Exception as e:

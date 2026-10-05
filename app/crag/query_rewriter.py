@@ -24,15 +24,18 @@ Provide ONLY the rewritten query text, with NO preamble, NO quotes, and NO comme
         self.llm = llm_client or OllamaClient()
 
     def rewrite(self, question: str) -> str:
-        """Generates an improved academic query string."""
+        """Generates an improved search query string."""
         prompt = self.REWRITE_PROMPT.format(question=question)
         rewritten = self.llm.generate(
             prompt=prompt,
-            system_prompt="You are an expert academic research query optimizer. Return only the rewritten query.",
+            system_prompt="You are an expert search query optimizer. Return only the rewritten query.",
             temperature=0.2
         )
         cleaned = rewritten.strip().strip('"').strip("'")
-        if not cleaned or len(cleaned) < 5 or cleaned.startswith("[Error"):
-            # Fallback: append domain search terms
-            return f"{question} object detection computer vision algorithm methodology"
+        if not cleaned or len(cleaned) < 3 or cleaned.startswith("[Error"):
+            # Clean normalization fallback without polluting with random CV keywords
+            import re
+            cleaned_q = re.sub(r"[^\w\s]", " ", question)
+            cleaned_q = re.sub(r"\s+", " ", cleaned_q).strip()
+            return cleaned_q
         return cleaned

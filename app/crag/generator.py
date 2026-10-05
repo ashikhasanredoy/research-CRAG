@@ -64,6 +64,52 @@ Provide a direct, concise, grounded answer with citations:"""
 
         return "\n".join(context_blocks), citations
 
+    def _fallback_synthesis(self, question: str, documents: List[Dict[str, Any]], citations: List[Dict[str, Any]]) -> str:
+        """Fallback extractive synthesizer when Ollama is unavailable or returns an error."""
+        if not documents:
+            return "Based on the indexed AI/ML research papers, no directly matching context was found for this query."
+        
+        # Check if any document is from web search
+        has_web = any(d.get("source_type") == "web_search" for d in documents)
+        
+        paragraphs = []
+        if has_web:
+            for doc in documents[:2]:
+                if doc.get("source_type") == "web_search":
+                    meta = doc.get("metadata", {})
+                    title = meta.get("paper_title", "Web Source")
+                    text = doc.get("text", "").strip()
+                    lines = [l.strip() for l in text.split("\n") if len(l.strip()) > 20]
+                    summary_snippet = " ".join(lines[:3]) if lines else text[:300]
+                    paragraphs.append(f"According to **{title}** [{title}, Page 1]: {summary_snippet}")
+            return "\n\n".join(paragraphs) if paragraphs else "Found relevant web information for your query."
+
+        # For local papers, check keyword relevance
+        import re
+        stopwords = {"the", "a", "an", "in", "on", "of", "and", "or", "to", "for", "is", "are", "with", "by", "what", "how", "why", "who", "where", "when", "can", "i", "my", "me", "you", "your", "feel", "pain", "head"}
+        q_terms = [w.lower() for w in re.findall(r'\b\w+\b', question) if w.lower() not in stopwords and len(w) > 2]
+        
+        relevant_docs = []
+        for doc in documents:
+            text_lower = doc.get("text", "").lower()
+            if any(term in text_lower for term in q_terms):
+                relevant_docs.append(doc)
+
+        if not relevant_docs:
+            return "This query is outside the domain of the indexed AI/ML computer vision papers (IA-YOLO, PE-YOLO, AOD-Net, CRAG). No relevant findings were located."
+
+        for doc in relevant_docs[:2]:
+            meta = doc.get("metadata", {})
+            title = meta.get("paper_title", meta.get("paper", "Paper"))
+            page = meta.get("page", 1)
+            section = meta.get("section", "General")
+            text = doc.get("text", "").strip()
+            lines = [l.strip() for l in text.split("\n") if len(l.strip()) > 30]
+            summary_snippet = " ".join(lines[:3]) if lines else text[:300]
+            paragraphs.append(f"According to **{title}** (Section: {section}) [{title}, Page {page}]: {summary_snippet}")
+        
+        return "\n\n".join(paragraphs)
+
     def generate(self, question: str, documents: List[Dict[str, Any]]) -> Tuple[str, List[Dict[str, Any]], str]:
         """Generates answer from documents and returns (answer, citations, context_str)."""
         context_str, citations = self.build_context(documents)
@@ -75,6 +121,10 @@ Provide a direct, concise, grounded answer with citations:"""
             temperature=0.1,
             max_tokens=450
         )
+        if response.startswith("[Error:"):
+            logger.info("Ollama error encountered during answer generation. Using fallback synthesis.")
+            response = self._fallback_synthesis(question, documents, citations)
+
         return response, citations, context_str
 
     def generate_stream(self, question: str, documents: List[Dict[str, Any]]):
@@ -86,4 +136,24 @@ Provide a direct, concise, grounded answer with citations:"""
             system_prompt=self.SYSTEM_PROMPT,
             temperature=0.1
         )
-        return stream, citations, context_str
+        
+        def safe_stream():
+            collected = []
+            has_error = False
+            for chunk in stream:
+                if chunk.startswith("[Error:"):
+                    has_error = True
+                    break
+                collected.append(chunk)
+                yield chunk
+            
+            if has_error:
+                fallback_text = self._fallback_synthesis(question, documents, citations)
+                # If nothing was yielded yet, stream fallback words
+                if not collected:
+                    import time
+                    for word in fallback_text.split(" "):
+                        yield word + " "
+                        time.sleep(0.02)
+
+        return safe_stream(), citations, context_str

@@ -98,12 +98,15 @@ class CRAGNodes:
             }
 
         top_score = docs[0].get("hybrid_score", 0.0) or docs[0].get("score", 0.0)
-        q_words = set(state["question"].lower().split())
-        top_text_words = set(docs[0].get("text", "").lower().split())
-        overlap_ratio = len(q_words.intersection(top_text_words)) / max(len(q_words), 1)
+        stopwords = {"the", "a", "an", "in", "on", "of", "and", "or", "to", "for", "is", "are", "with", "by", "what", "how", "why", "who", "where", "when", "can", "i", "my", "me", "you", "your", "feel", "some"}
+        content_words = [w for w in re.findall(r'\b\w+\b', state["question"].lower()) if w not in stopwords and len(w) > 2]
+        
+        top_text_words = set(re.findall(r'\b\w+\b', docs[0].get("text", "").lower()))
+        overlap_count = sum(1 for w in content_words if w in top_text_words)
+        overlap_ratio = overlap_count / max(len(content_words), 1) if content_words else 0.0
 
-        # High confidence if RRF score is strong or keyword overlap is high
-        is_high_confidence = top_score >= settings.CONFIDENCE_THRESHOLD or overlap_ratio >= 0.40
+        # Truly HIGH confidence if at least 50% of content words match the document AND score is good
+        is_high_confidence = overlap_ratio >= 0.50 and top_score >= 0.012
 
         conf_level = "HIGH" if is_high_confidence else "LOW"
         fast_path = is_high_confidence
@@ -179,8 +182,12 @@ class CRAGNodes:
 
         has_found = False
         if re_docs:
-            top_score = re_docs[0].get("hybrid_score", 0.0) or re_docs[0].get("score", 0.0)
-            has_found = top_score >= 0.010 or len(re_docs) > 0
+            stopwords = {"the", "a", "an", "in", "on", "of", "and", "or", "to", "for", "is", "are", "with", "by", "what", "how", "why", "who", "where", "when", "can", "i", "my", "me", "you", "your"}
+            content_words = [w for w in re.findall(r'\b\w+\b', rewritten_q.lower()) if w not in stopwords and len(w) > 2]
+            top_text_words = set(re.findall(r'\b\w+\b', re_docs[0].get("text", "").lower()))
+            overlap_count = sum(1 for w in content_words if w in top_text_words)
+            overlap_ratio = overlap_count / max(len(content_words), 1) if content_words else 0.0
+            has_found = overlap_ratio >= 0.30
 
         trace = self._add_trace(state, "re_retrieval_check", {
             "query": rewritten_q,

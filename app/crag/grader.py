@@ -1,3 +1,4 @@
+import re
 import json
 import logging
 from typing import List, Dict, Any, Tuple
@@ -79,14 +80,18 @@ Respond ONLY in this exact JSON format:
                 reasons_map[doc_id] = item.get("reason", "Graded by batch evaluator")
 
         except Exception as e:
-            logger.warning(f"Batch grader fallback triggered ({e}). Using rerank / semantic heuristic.")
-            # Heuristic fallback: docs with positive cross-encoder score or high BM25/vector score
+            logger.warning(f"Batch grader fallback triggered ({e}). Using semantic keyword overlap heuristic.")
+            stopwords = {"the", "a", "an", "in", "on", "of", "and", "or", "to", "for", "is", "are", "with", "by", "what", "how", "why", "who", "where", "when", "can", "i", "my", "me", "you", "your", "feel", "pain", "head"}
+            q_terms = [w.lower() for w in re.findall(r'\b\w+\b', question) if w.lower() not in stopwords and len(w) > 2]
+
             for idx, doc in enumerate(documents, start=1):
-                rerank_sc = doc.get("rerank_score", -99)
-                hybrid_sc = doc.get("hybrid_score", 0)
-                if rerank_sc > -1.5 or hybrid_sc > 0.02 or idx == 1:
+                text_lower = doc.get("text", "").lower()
+                matching_terms = [w for w in q_terms if w in text_lower]
+                overlap = len(matching_terms) / max(len(q_terms), 1) if q_terms else 0.0
+
+                if overlap >= 0.30:
                     relevant_indices.add(idx)
-                    reasons_map[idx] = f"Heuristic score match (rerank={rerank_sc})"
+                    reasons_map[idx] = f"Keyword overlap match ({int(overlap*100)}%)"
 
         relevant_docs: List[Dict[str, Any]] = []
         irrelevant_docs: List[Dict[str, Any]] = []
