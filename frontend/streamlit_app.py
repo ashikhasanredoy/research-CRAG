@@ -5,7 +5,7 @@ import time
 from pathlib import Path
 
 # API Endpoint
-API_URL = "http://localhost:8000/api"
+API_URL = "http://localhost:8008/api"
 
 st.set_page_config(
     page_title="ResearchCRAG",
@@ -69,7 +69,7 @@ with st.sidebar:
         chunks = health.get("vectorstore", {}).get("total_chunks", 0)
         st.caption(f"**Vector Store:** {chunks} chunks indexed")
     else:
-        st.error("🔴 Backend Offline (Port 8000)", icon="⚠️")
+        st.error("🔴 Backend Offline (Port 8008)", icon="⚠️")
 
     st.divider()
     st.subheader("Settings")
